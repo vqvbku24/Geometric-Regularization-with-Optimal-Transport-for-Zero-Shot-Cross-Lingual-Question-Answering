@@ -7,8 +7,6 @@
 # 2. Tự động nhận diện GPU & chạy DDP an toàn bằng torchrun
 # 3. Huấn luyện M3 Arabic (tự động upload checkpoint mỗi epoch lên Hugging Face)
 # 4. Huấn luyện M3 Hindi (tự động upload checkpoint mỗi epoch lên Hugging Face)
-# 5. Đánh giá toàn diện trên XQuAD & MLQA (chọn Best khách quan + Epoch chẩn đoán)
-# 6. Tổng hợp báo cáo và upload lên Hugging Face Hub (results/)
 # ==============================================================================
 
 set -e
@@ -189,7 +187,4 @@ $EVAL_CMD
 echo ""
 echo "======================================================================"
 echo "  PIPELINE HOÀN TẤT THÀNH CÔNG!"
-echo "  File kết quả Markdown: results_m3_rebuttal.md"
-echo "  File kết quả JSON:     results_m3_rebuttal.json"
-echo "  Đã tự động upload lên Hugging Face: ${HF_REPO} (thư mục results/)"
 echo "======================================================================"
