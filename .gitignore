@@ -1,0 +1,26 @@
+# Hugging Face token file
+.hf_token
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.env
+
+# Logs and checkpoints
+checkpoints/
+runs/
+tensorboard_logs/
+dataset/IndicSQuAD/*
+checkpoints_trained_margin/*
+review_ACL.txt
+rebuttal.md
+audit.txt
+baselines/*
+*.zip
+
+# IDEs
+.vscode/
+.idea/
