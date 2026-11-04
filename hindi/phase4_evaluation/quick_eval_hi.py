@@ -92,9 +92,9 @@ def _run_inference(model, criterion, tokenizer, question, context, device, max_l
 
     base_model = get_model(model)
     out = base_model.backbone(input_ids, attn_mask)
-    target_layers = [6, 7, 8, 9]
+    target_layers = getattr(base_model, 'target_layers', [6, 7, 8, 9])
     stacked = torch.stack([out.hidden_states[i] for i in target_layers], dim=0)
-    weights = torch.softmax(base_model.layer_weights, dim=0).view(4, 1, 1, 1)
+    weights = torch.softmax(base_model.layer_weights, dim=0).view(len(target_layers), 1, 1, 1)
     hidden  = (stacked * weights).sum(dim=0)
 
     q_emb  = hidden[:, :q_end_val, :]
@@ -273,6 +273,8 @@ if __name__ == "__main__":
     if args.stage1_ckpt:
         print(f"Loading Stage 1 base from: {args.stage1_ckpt}")
         ckpt_stage1 = torch.load(args.stage1_ckpt, map_location=device)
+        if "target_layers" in ckpt_stage1 and ckpt_stage1["target_layers"]:
+            model.target_layers = ckpt_stage1["target_layers"]
         if "model_state" in ckpt_stage1:
             model.load_state_dict(ckpt_stage1["model_state"], strict=False)
             if "criterion_state" in ckpt_stage1 and ckpt_stage1["criterion_state"] is not None:
@@ -285,6 +287,8 @@ if __name__ == "__main__":
         model.to(device)
 
     ckpt = torch.load(args.ckpt, map_location=device)
+    if "target_layers" in ckpt and ckpt["target_layers"]:
+        model.target_layers = ckpt["target_layers"]
     if "model_state" in ckpt:
         model.load_state_dict(ckpt["model_state"], strict=False)
         if "criterion_state" in ckpt and ckpt["criterion_state"] is not None:

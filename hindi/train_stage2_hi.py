@@ -69,6 +69,7 @@ log = logging.getLogger(__name__)
 STAGE2_HI_CONFIG = {
     'stage1_ckpt'    : 'checkpoints/stage1_squad_best.pt',
     'model_name'     : 'xlm-roberta-base',
+    'target_layers'  : None,
 
     # Loss weights
     'lambda_ot'      : 0.5,
@@ -388,16 +389,34 @@ def run_stage2_hi(config: dict):
 
     os.makedirs(config['output_dir'], exist_ok=True)
 
+    ckpt_path = config['stage1_ckpt']
+    if not os.path.isabs(ckpt_path):
+        ckpt_path = os.path.join(config['root_dir'], ckpt_path)
+
+    if os.path.exists(ckpt_path):
+        try:
+            ckpt_meta = torch.load(ckpt_path, map_location='cpu')
+            if 'model_name' in ckpt_meta and config.get('model_name') == STAGE2_HI_CONFIG['model_name']:
+                config['model_name'] = ckpt_meta['model_name']
+                if is_main_process():
+                    log.info(f"Auto-detected model_name from Stage 1 checkpoint: {config['model_name']}")
+            if 'target_layers' in ckpt_meta and config.get('target_layers') is None:
+                config['target_layers'] = ckpt_meta['target_layers']
+                if is_main_process():
+                    log.info(f"Auto-detected target_layers from Stage 1 checkpoint: {config['target_layers']}")
+        except Exception as e:
+            log.warning(f"Could not pre-read checkpoint metadata: {e}")
+
     # ── Model ────────────────────────────────────────────────
     from phase2_model.model_core import CrossLingualOTModel
     from phase3_loss.losses import OTAlignmentLoss, Stage2Loss
 
-    model     = CrossLingualOTModel(model_name=config['model_name']).to(device)
+    model     = CrossLingualOTModel(
+        model_name=config['model_name'],
+        target_layers=config.get('target_layers')
+    ).to(device)
     criterion = OTAlignmentLoss(hidden_size=get_model(model).hidden_size).to(device)
 
-    ckpt_path = config['stage1_ckpt']
-    if not os.path.isabs(ckpt_path):
-        ckpt_path = os.path.join(config['root_dir'], ckpt_path)
     en_em_baseline = load_stage1_checkpoint(ckpt_path, model, criterion, device)
 
     if is_main_process():
@@ -694,6 +713,7 @@ def parse_args() -> dict:
     parser = argparse.ArgumentParser(description='Stage 2 HI: Teacher-Student Sinkhorn Alignment (Hindi)')
     parser.add_argument('--stage1_ckpt',    default=STAGE2_HI_CONFIG['stage1_ckpt'])
     parser.add_argument('--model_name',     default=STAGE2_HI_CONFIG['model_name'])
+    parser.add_argument('--target_layers',  nargs='+', type=int, default=None)
     parser.add_argument('--batch_size',     type=int,   default=STAGE2_HI_CONFIG['batch_size'])
     parser.add_argument('--max_epochs',     type=int,   default=STAGE2_HI_CONFIG['max_epochs'])
     parser.add_argument('--stage2_head_lr', type=float, default=STAGE2_HI_CONFIG['stage2_head_lr'])

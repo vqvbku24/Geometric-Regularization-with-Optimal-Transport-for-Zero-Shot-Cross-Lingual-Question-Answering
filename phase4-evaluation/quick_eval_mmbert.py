@@ -286,6 +286,8 @@ if __name__ == "__main__":
     if args.stage1_ckpt:
         print(f"Loading Stage 1 base from: {args.stage1_ckpt}")
         ckpt_stage1 = torch.load(args.stage1_ckpt, map_location=device)
+        if "target_layers" in ckpt_stage1 and ckpt_stage1["target_layers"]:
+            model.target_layers = ckpt_stage1["target_layers"]
         if "model_state" in ckpt_stage1:
             model.load_state_dict(ckpt_stage1["model_state"], strict=False)
             if "criterion_state" in ckpt_stage1 and ckpt_stage1["criterion_state"] is not None:
@@ -299,6 +301,8 @@ if __name__ == "__main__":
 
     # Load the main checkpoint (either Stage 1 or Stage 2 LoRA)
     ckpt = torch.load(args.ckpt, map_location=device)
+    if "target_layers" in ckpt and ckpt["target_layers"]:
+        model.target_layers = ckpt["target_layers"]
     
     # Check if checkpoint has dict keys or is direct state dict
     if "model_state" in ckpt:
