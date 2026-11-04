@@ -1,0 +1,56 @@
+\reviewersection{1}{a7DZ}
+
+We sincerely thank Reviewer a7DZ for the positive assessment. We will add a plain-language walkthrough of the task setting to the Appendix --- target-label-free zero-shot cross-lingual QA, and an intuitive narration of the spatial/domain/boundary coordination using the toy example already shown in Figure~1 --- to make the paper more accessible to readers outside cross-lingual transfer.
+
+\reviewersection{2}{w4ZB}
+
+We sincerely thank Reviewer w4ZB for the thorough and constructive feedback, and for acknowledging the strengths of our work; below we address each concern in detail:
+
+\point{Ablations on XQuAD and MLQA.}
+We provide the complete M1--M5 ablations on both XQuAD and MLQA across all three languages below:
+
+\vspace{0.4em}
+\noindent
+\begin{center}
+\small
+\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{l ccc c ccc}
+\toprule
+& \multicolumn{3}{c}{\textbf{XQuAD} (EM / F1)} & & \multicolumn{3}{c}{\textbf{MLQA} (EM / F1)} \\
+\cmidrule{2-4} \cmidrule{6-8}
+\textbf{Config} & \textbf{Vietnamese} & \textbf{Arabic} & \textbf{Hindi} & & \textbf{Vietnamese} & \textbf{Arabic} & \textbf{Hindi} \\
+\midrule
+M1 & 46.22 / 63.64 & 43.53 / 57.03 & 44.54 / 60.21 & & 46.05 / 67.21 & 37.26 / 56.38 & 42.88 / 60.40 \\
+M2 & 43.28 / 61.62 & 40.34 / 54.84 & 33.70 / 49.62 & & 42.89 / 64.08 & 32.72 / 52.54 & 33.12 / 52.10 \\
+M3 & 46.64 / 67.42 & 43.95 / 62.42 & 52.61 / 66.87 & & 44.35 / 65.33 & 35.16 / 54.02 & 44.27 / 60.35 \\
+M4 & 49.30 / 69.31 & 46.96 / 65.19 & 52.35 / 65.83 & & 45.23 / 67.33 & 36.60 / 55.83 & 45.99 / 62.00 \\
+\textbf{M5 (ours)} & \textbf{49.70} / \textbf{69.73} & \textbf{47.31} / \textbf{65.26} & \textbf{52.94} / \textbf{66.94} & & \textbf{46.00} / \textbf{67.60} & \textbf{37.59} / \textbf{56.50} & \textbf{45.87} / \textbf{61.69} \\
+\bottomrule
+\end{tabular}
+\end{center}
+\vspace{0.4em}
+
+\point{Ablations and benchmark choice.}
+The over-alignment failure ($\text{M2} < \text{M1}$) and its recovery through M3--M5 are consistently observed on XQuAD. We used MLQA for the main ablation because it provides an out-of-domain evaluation relative to our SQuAD-derived training data; the full XQuAD ablation above also addresses possible benchmark dependence.
+
+\point{MLQA performance and checkpoint selection.}
+Averaged across languages, M5 improves EM/F1 by $+5.2/+7.0$ on XQuAD versus $+1.1/+0.6$ on MLQA. We attribute this difference to benchmark characteristics: XQuAD uses extractive answers closer to SQuAD-derived training spans, whereas MLQA contains more paraphrastic answer realizations, reducing the direct benefit of boundary localization. We confirm that the same target-language validation-based checkpoint-selection protocol was applied uniformly to our method and all four external baselines (Sec.~4), and will clarify this in the revision.
+
+\point{Seed variance.}
+We acknowledge that our multi-seed analysis covers M5 but not every baseline. Due to the computational cost, a complete multi-seed baseline comparison was not feasible during rebuttal; we will explicitly state this limitation.
+
+\point{Clarity.}
+We will rewrite Sec.~3.4 to introduce the boundary-regularization hypothesis more clearly, explain $\mathbf{T}^*.\text{detach()}$ as stopping gradients through the transport plan, and elaborate the Vanilla KD baseline and objective. We will also remove the duplicated multi-objective equation from Sec.~3.1 and streamline the static/dynamic scheduling discussion.
+
+\point{Backbone generality.}
+We agree that evaluation beyond XLM-R would strengthen the study and plan to validate the framework on mmBERT in the camera-ready.
+
+\reviewersection{3}{YxgU}
+
+We sincerely thank Reviewer YxgU for the positive assessment, below we address each concern in detail:
+
+\point{On computational cost:}
+This is already reported in Table~7 (Appendix~D) --- trainable params, peak VRAM, and throughput for all four external baselines, our framework, and full fine-tuning, measured under an identical protocol (single A100-80GB, batch 128). In summary: our framework uses far less VRAM than InfoXLM/MINOTAUR (42.3GB vs 78.8GB) despite three forward passes per step, though it is the slowest in throughput (29.8 samples/s) due to the Sinkhorn solver --- a tradeoff already discussed in Limitations. We will reference this table more prominently from the main text in the revision.
+
+\point{On low-resource generalization:}
+This is a valid concern, and our analysis provides suggestive evidence about one potential limitation of the framework. Appendix~M shows that Hindi exhibits systematically higher and faster-growing Sinkhorn transport-plan entropy than Vietnamese (Table~13), indicating less concentrated cross-lingual correspondences in our experiments. This suggests that noisy transport alignments may become a more important challenge as the resource level decreases. We therefore agree that substantially lower-resource languages may require more robust or adapted span-projection strategies, and will state this limitation and future direction more explicitly.
