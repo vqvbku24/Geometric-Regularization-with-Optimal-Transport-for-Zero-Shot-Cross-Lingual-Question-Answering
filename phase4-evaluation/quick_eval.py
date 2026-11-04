@@ -85,10 +85,10 @@ def quick_em_f1(model, criterion, tokenizer, dev_file, n_samples=200, device="cu
 
             # Get hidden states from backbone (no GAT, no subsampling)
             base_model = get_model(model)
-            out = base_model.backbone(input_ids, attn_mask)
-            target_layers = [6, 7, 8, 9]
-            stacked = torch.stack([out.hidden_states[i] for i in target_layers], dim=0)  # (4, 1, L, H)
-            weights = torch.softmax(base_model.layer_weights, dim=0).view(4, 1, 1, 1)
+            out = base_model.backbone(input_ids, attn_mask, output_hidden_states=True)
+            target_layers = getattr(base_model, "target_layers", [6, 7, 8, 9])
+            stacked = torch.stack([out.hidden_states[i] for i in target_layers], dim=0)  # (len, 1, L, H)
+            weights = torch.softmax(base_model.layer_weights, dim=0).view(len(target_layers), 1, 1, 1)
             hidden = (stacked * weights).sum(dim=0)   # (1, L, H)
 
             # Extract question embeddings for cross-attention (exclude [SEP])
@@ -144,6 +144,14 @@ def quick_em_f1(model, criterion, tokenizer, dev_file, n_samples=200, device="cu
     return (correct / n_total * 100) if n_total > 0 else 0.0, (total_f1 / n_total * 100) if n_total > 0 else 0.0
 
 
+def quick_em(model, criterion, tokenizer, dev_file, n_samples=200, device="cuda"):
+    """
+    Backwards compatibility wrapper for train_stage1.py: returns only EM score.
+    """
+    em, _ = quick_em_f1(model, criterion, tokenizer, dev_file, n_samples=n_samples, device=device)
+    return em
+
+
 # ──────────────────────────────────────────────────────────────
 # S2-04 Extension: XQuAD VI Evaluation (exact match & F1 on VI spans)
 # ──────────────────────────────────────────────────────────────
@@ -191,14 +199,14 @@ def quick_em_f1_xquad_vi(
             attn_mask = attn_mask.unsqueeze(0).to(device)   # (1, L)
             q_end_val = q_end.item()
 
-            # Hidden states via shared backbone (layers 6-9 weighted mix)
+            # Hidden states via shared backbone (weighted mix)
             base_model = get_model(model)
-            out = base_model.backbone(input_ids, attn_mask)
-            target_layers = [6, 7, 8, 9]
+            out = base_model.backbone(input_ids, attn_mask, output_hidden_states=True)
+            target_layers = getattr(base_model, "target_layers", [6, 7, 8, 9])
             stacked = torch.stack(
                 [out.hidden_states[i] for i in target_layers], dim=0
-            )  # (4, 1, L, H)
-            weights = torch.softmax(base_model.layer_weights, dim=0).view(4, 1, 1, 1)
+            )  # (len, 1, L, H)
+            weights = torch.softmax(base_model.layer_weights, dim=0).view(len(target_layers), 1, 1, 1)
             hidden = (stacked * weights).sum(dim=0)   # (1, L, H)
 
             # Question embeddings for cross-attention (exclude [SEP])
@@ -336,10 +344,10 @@ if __name__ == "__main__":
 
             # Forward backbone
             base_model = get_model(model)
-            out = base_model.backbone(input_ids, attn_mask)
-            target_layers = [6, 7, 8, 9]
+            out = base_model.backbone(input_ids, attn_mask, output_hidden_states=True)
+            target_layers = getattr(base_model, "target_layers", [6, 7, 8, 9])
             stacked = torch.stack([out.hidden_states[l] for l in target_layers], dim=0)
-            weights = torch.softmax(base_model.layer_weights, dim=0).view(4, 1, 1, 1)
+            weights = torch.softmax(base_model.layer_weights, dim=0).view(len(target_layers), 1, 1, 1)
             hidden = (stacked * weights).sum(dim=0)
 
             # Question embeddings (exclude [SEP])

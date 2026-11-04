@@ -88,7 +88,7 @@ def run_smoke_tests(model_name: str = "jhu-clsp/mmBERT-base", device_str: str = 
         default_layers = model_default.target_layers
         print(f"  ✓ Default target_layers auto-detected: {default_layers}")
         if "mmbert" in model_name.lower():
-            assert default_layers == [11, 12, 14, 16], f"Expected [11, 12, 14, 16] for mmBERT, got {default_layers}"
+            assert default_layers == [10, 13, 16, 19], f"Expected [10, 13, 16, 19] for mmBERT, got {default_layers}"
         assert len(model_default.layer_weights) == len(default_layers), "layer_weights length mismatch"
 
         # Custom configurable target layers

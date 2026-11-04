@@ -166,7 +166,10 @@ def run_stage1(config):
         # Eval (rank 0 only)
         if is_main_process():
             import importlib.util
-            eval_file = os.path.join(config["root_dir"], "phase4-evaluation", "quick_eval.py")
+            if "mmbert" in config.get("model_name", "").lower():
+                eval_file = os.path.join(config["root_dir"], "phase4-evaluation", "quick_eval_mmbert.py")
+            else:
+                eval_file = os.path.join(config["root_dir"], "phase4-evaluation", "quick_eval.py")
             spec = importlib.util.spec_from_file_location("quick_eval", eval_file)
             quick_eval_mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(quick_eval_mod)
