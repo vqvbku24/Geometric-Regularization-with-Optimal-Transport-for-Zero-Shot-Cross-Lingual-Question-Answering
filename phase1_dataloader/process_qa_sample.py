@@ -143,10 +143,9 @@ def load_squad_data(file_path: str) -> list[dict]:
             for qa in paragraph["qas"]:
                 # FIX: answer_start luôn là list[int]
                 if qa.get("answers") and len(qa["answers"]) > 0:
-                    first = qa["answers"][0]
                     answer_dict = {
-                        "text": [first["text"]],
-                        "answer_start": [int(first["answer_start"])],  # ← list[int]
+                        "text": [a["text"] for a in qa["answers"]],
+                        "answer_start": [int(a["answer_start"]) for a in qa["answers"]],
                     }
                 else:
                     answer_dict = {"text": [], "answer_start": []}

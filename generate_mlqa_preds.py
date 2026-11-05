@@ -22,17 +22,30 @@ def generate_predictions(args):
     model = CrossLingualOTModel(model_name=args.model_name).to(device)
     criterion = OTAlignmentLoss(hidden_size=model.hidden_size).to(device)
 
-    # 2. Load Stage 1 (Base/Teacher) if provided
-    if args.stage1_ckpt:
+    # 2. Check Zero-Shot mode vs Stage 2 Adaptation mode
+    is_zero_shot = args.zero_shot or (args.stage1_ckpt is None) or (args.ckpt == args.stage1_ckpt)
+    
+    if is_zero_shot:
+        print(f"Loading Zero-Shot Base weights from {args.ckpt}...")
+        ckpt = torch.load(args.ckpt, map_location=device)
+        if "target_layers" in ckpt and ckpt["target_layers"]:
+            model.target_layers = ckpt["target_layers"]
+        elif "config" in ckpt and isinstance(ckpt["config"], dict) and ckpt["config"].get("target_layers"):
+            model.target_layers = ckpt["config"]["target_layers"]
+        
+        model.load_state_dict(ckpt.get("model_state", ckpt), strict=False)
+        if "criterion_state" in ckpt and ckpt["criterion_state"] is not None:
+            criterion.load_state_dict(ckpt["criterion_state"], strict=False)
+            print("Successfully loaded QA Head weights!")
+        model.to(device)
+    else:
+        # Load Stage 1 base
         print(f"Loading Stage 1 base from: {args.stage1_ckpt}")
         ckpt_stage1 = torch.load(args.stage1_ckpt, map_location=device)
         if "target_layers" in ckpt_stage1 and ckpt_stage1["target_layers"]:
             model.target_layers = ckpt_stage1["target_layers"]
         
-        # Load Backbone
         model.load_state_dict(ckpt_stage1.get("model_state", ckpt_stage1), strict=False)
-        
-        # Load QA Head (Vô cùng quan trọng)
         if "criterion_state" in ckpt_stage1 and ckpt_stage1["criterion_state"] is not None:
             criterion.load_state_dict(ckpt_stage1["criterion_state"], strict=False)
         
@@ -40,23 +53,20 @@ def generate_predictions(args):
         model.apply_lora()
         model.to(device)
 
-    # 3. Load Stage 2 (LoRA Checkpoint)
-    print(f"Loading Stage 2 weights from {args.ckpt}...")
-    ckpt = torch.load(args.ckpt, map_location=device)
-    if "target_layers" in ckpt and ckpt["target_layers"]:
-        model.target_layers = ckpt["target_layers"]
-    elif "config" in ckpt and isinstance(ckpt["config"], dict) and ckpt["config"].get("target_layers"):
-        model.target_layers = ckpt["config"]["target_layers"]
-    
-    # Load Backbone LoRA weights
-    model.load_state_dict(ckpt.get("model_state", ckpt), strict=False)
-    
-    # Load QA Head Stage 2 (Vô cùng quan trọng để không bị rớt điểm)
-    if "criterion_state" in ckpt and ckpt["criterion_state"] is not None:
-        criterion.load_state_dict(ckpt["criterion_state"], strict=False)
-        print("Successfully loaded QA Head weights!")
-    else:
-        print("WARNING: No criterion_state found in Stage 2 checkpoint!")
+        # 3. Load Stage 2 (LoRA Checkpoint)
+        print(f"Loading Stage 2 weights from {args.ckpt}...")
+        ckpt = torch.load(args.ckpt, map_location=device)
+        if "target_layers" in ckpt and ckpt["target_layers"]:
+            model.target_layers = ckpt["target_layers"]
+        elif "config" in ckpt and isinstance(ckpt["config"], dict) and ckpt["config"].get("target_layers"):
+            model.target_layers = ckpt["config"]["target_layers"]
+        
+        model.load_state_dict(ckpt.get("model_state", ckpt), strict=False)
+        if "criterion_state" in ckpt and ckpt["criterion_state"] is not None:
+            criterion.load_state_dict(ckpt["criterion_state"], strict=False)
+            print("Successfully loaded QA Head weights!")
+        else:
+            print("WARNING: No criterion_state found in Stage 2 checkpoint!")
     
     model.eval()
     criterion.eval()
@@ -148,6 +158,13 @@ def generate_predictions(args):
                     
                     if total_samples % 500 == 0:
                         print(f"  Processed {total_samples} samples...")
+                    
+                    if args.n_samples > 0 and total_samples >= args.n_samples:
+                        break
+                if args.n_samples > 0 and total_samples >= args.n_samples:
+                    break
+            if args.n_samples > 0 and total_samples >= args.n_samples:
+                break
 
     # 6. Lưu ra file JSON
     with open(args.output_pred_file, 'w', encoding='utf-8') as f:
@@ -160,7 +177,9 @@ if __name__ == "__main__":
     parser.add_argument("--stage1_ckpt", type=str, default=None)
     parser.add_argument("--eval_file", type=str, required=True)
     parser.add_argument("--output_pred_file", type=str, default="mlqa_preds.json")
-    parser.add_argument("--model_name", type=str, default="xlm-roberta-base")
+    parser.add_argument("--model_name", type=str, default="jhu-clsp/mmBERT-base")
     parser.add_argument("--max_length", type=int, default=384)
+    parser.add_argument("--zero_shot", action="store_true", default=False)
+    parser.add_argument("--n_samples", type=int, default=0, help="Number of samples (0 for all)")
     args = parser.parse_args()
     generate_predictions(args)

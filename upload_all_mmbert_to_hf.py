@@ -137,6 +137,12 @@ def sync_all(repo_id: str = "vinhvo1205/Sinkhorn_2_stages", prefix: str = "mmBER
     if os.path.exists(res_json):
         upload_file_safe(res_json, f"{prefix}/results/results_mmbert_pipeline.json")
 
+    # 4. MLQA Prediction JSONs
+    pred_dir = os.path.join(BASE_DIR, "preds_mlqa")
+    if os.path.exists(pred_dir):
+        for pf in glob.glob(os.path.join(pred_dir, "*.json")):
+            upload_file_safe(pf, f"{prefix}/predictions/{os.path.basename(pf)}")
+
     log.info("=" * 70)
     log.info(f"  HOÀN TẤT ĐỒNG BỘ mmBERT: {success_count} thành công, {fail_count} lỗi/bỏ qua")
     log.info(f"  Đường dẫn xem trên Hub: https://huggingface.co/{repo_id}/tree/main/{prefix}")
