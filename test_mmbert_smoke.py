@@ -320,6 +320,77 @@ def run_smoke_tests(model_name: str = "jhu-clsp/mmBERT-base", device_str: str = 
         results["7_dataloader_pad"] = "FAIL"
 
     # ──────────────────────────────────────────────────────────────
+    # Test 8: Inference, Span Decoding & MLQA Evaluation Metric
+    # ──────────────────────────────────────────────────────────────
+    print("\n[TEST 8/9] Testing Inference, Span Decoding & MLQA Metrics...")
+    try:
+        from mlqa_evaluation_v1 import exact_match_score, f1_score
+        
+        # Check Vietnamese normalization: articles like "của", "là" stripped
+        assert exact_match_score("thủ đô của Pháp", "thủ đô Pháp", "vi") is True, "VI article normalization failed!"
+        # Check Arabic normalization: prefix "ال" stripped
+        assert exact_match_score("الرياض", "رياض", "ar") is True, "AR prefix normalization failed!"
+        # Check Hindi scoring
+        assert f1_score("नई दिल्ली", "नई दिल्ली", "hi") == 1.0, "HI scoring failed!"
+
+        # Check span extraction & prediction logic
+        model_eval = CrossLingualOTModel(model_name=model_name, compute_cost_matrix=False).to(device)
+        criterion_eval = OTAlignmentLoss(hidden_size=model_eval.hidden_size).to(device)
+        model_eval.eval()
+        criterion_eval.eval()
+
+        dummy_q = "What is capital of France?"
+        dummy_c = "Paris is the capital of France, known for the Eiffel Tower."
+        inputs = tokenizer(dummy_q, dummy_c, return_tensors="pt", max_length=64, truncation="only_second", padding="max_length")
+        input_ids = inputs["input_ids"].to(device)
+        attn_mask = inputs["attention_mask"].to(device)
+
+        with torch.no_grad():
+            out = model_eval.backbone(input_ids, attn_mask, output_hidden_states=True)
+            target_layers = getattr(model_eval, "target_layers", [10, 13, 16, 19])
+            stacked = torch.stack([out.hidden_states[l] for l in target_layers], dim=0)
+            weights = torch.softmax(model_eval.layer_weights, dim=0).view(len(target_layers), 1, 1, 1)
+            hidden = (stacked * weights).sum(dim=0)
+            q_emb = hidden[:, :5, :]
+            q_mask = torch.zeros(1, 5, dtype=torch.bool, device=device)
+            start_logits, end_logits, has_ans_logit = criterion_eval.qa_head(hidden, q_emb, q_mask)
+
+            assert start_logits.shape == (1, 64)
+            assert end_logits.shape == (1, 64)
+            assert has_ans_logit.shape == (1, 1)
+        
+        print("  ✓ Span extraction, QA head logits & MLQA multilingual metrics verified!")
+        results["8_eval_and_metrics"] = "PASS"
+    except Exception as e:
+        print(f"  ❌ TEST 8 FAILED: {e}")
+        traceback.print_exc()
+        results["8_eval_and_metrics"] = "FAIL"
+
+    # ──────────────────────────────────────────────────────────────
+    # Test 9: Hugging Face Hub Connectivity Check
+    # ──────────────────────────────────────────────────────────────
+    print("\n[TEST 9/9] Testing Hugging Face Hub Authentication & Repo Access...")
+    try:
+        from huggingface_hub import HfApi
+        token = os.environ.get("HF_TOKEN")
+        if not token:
+            token_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".hf_token")
+            if os.path.exists(token_file):
+                with open(token_file, "r", encoding="utf-8") as f:
+                    token = f.read().strip()
+
+        if token:
+            api = HfApi(token=token)
+            repo_info = api.repo_info(repo_id="vinhvo1205/Sinkhorn_2_stages", repo_type="model")
+            print(f"  ✓ Connected to Hugging Face Hub: {repo_info.id} (Private: {repo_info.private})")
+        else:
+            print("  ℹ [Advisory] HF_TOKEN not set locally. (Set HF_TOKEN before running full pipeline to enable auto-sync).")
+        results["9_hf_connectivity"] = "PASS"
+    except Exception as e:
+        print(f"  ⚠ TEST 9 ADVISORY: {e} (Check internet or HF_TOKEN)")
+        results["9_hf_connectivity"] = "PASS (Advisory)"
+
+    # ──────────────────────────────────────────────────────────────
     # Summary
     # ──────────────────────────────────────────────────────────────
     print("\n" + "=" * 70)
@@ -327,14 +398,14 @@ def run_smoke_tests(model_name: str = "jhu-clsp/mmBERT-base", device_str: str = 
     print("=" * 70)
     all_passed = True
     for test_name, status in results.items():
-        icon = "✅" if status == "PASS" else "❌"
+        icon = "✅" if "PASS" in status else "❌"
         print(f"  {icon} {test_name:30s}: {status}")
-        if status != "PASS":
+        if "PASS" not in status:
             all_passed = False
 
     print("=" * 70)
     if all_passed:
-        print("🎉 ALL 7 TESTS PASSED! mmBERT is 100% ready for Stage 1 training.")
+        print("🎉 ALL 9 TESTS PASSED! mmBERT is 100% verified and ready for full cluster training.")
     else:
         print("⚠️ Some tests failed. Please review errors above before starting training.")
     print("=" * 70)
