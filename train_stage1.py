@@ -202,6 +202,9 @@ def run_stage1(config):
                 }, save_path)
                 log.info(f"🏆 Saved best Stage 1 checkpoint to {save_path} (EM: {em:.2f}%)")
 
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()
+
     cleanup_ddp()
 
 if __name__ == "__main__":

@@ -115,7 +115,7 @@ def _run_inference(model, criterion, tokenizer, question, context, device, max_l
     q_end_val = q_end.item()
 
     base_model = get_model(model)
-    out = base_model.backbone(input_ids, attn_mask)
+    out = base_model.backbone(input_ids, attn_mask, output_hidden_states=True)
     target_layers = getattr(base_model, 'target_layers', [6, 7, 8, 9])
     stacked = torch.stack([out.hidden_states[i] for i in target_layers], dim=0)
     weights = torch.softmax(base_model.layer_weights, dim=0).view(len(target_layers), 1, 1, 1)

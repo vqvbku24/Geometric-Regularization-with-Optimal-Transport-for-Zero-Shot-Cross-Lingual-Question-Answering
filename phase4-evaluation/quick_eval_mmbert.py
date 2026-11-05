@@ -257,7 +257,7 @@ if __name__ == "__main__":
     parser.add_argument("--ckpt", type=str, required=True, help="Path to checkpoint (Stage 1 or Stage 2)")
     parser.add_argument("--stage1_ckpt", type=str, default=None, help="Path to Stage 1 base checkpoint (Required if --ckpt is a Stage 2 LoRA checkpoint)")
     parser.add_argument("--eval_file", type=str, required=True, help="Path to evaluation SQuAD JSON file")
-    parser.add_argument("--n_samples", type=int, default=180, help="Number of samples to evaluate")
+    parser.add_argument("--n_samples", type=int, default=0, help="Number of samples to evaluate (0 for all)")
     parser.add_argument("--model_name", type=str, default="xlm-roberta-base", help="Model name")
     parser.add_argument("--max_length", type=int, default=384, help="Max length")
     args = parser.parse_args()
@@ -303,6 +303,8 @@ if __name__ == "__main__":
     ckpt = torch.load(args.ckpt, map_location=device)
     if "target_layers" in ckpt and ckpt["target_layers"]:
         model.target_layers = ckpt["target_layers"]
+    elif "config" in ckpt and isinstance(ckpt["config"], dict) and ckpt["config"].get("target_layers"):
+        model.target_layers = ckpt["config"]["target_layers"]
     
     # Check if checkpoint has dict keys or is direct state dict
     if "model_state" in ckpt:

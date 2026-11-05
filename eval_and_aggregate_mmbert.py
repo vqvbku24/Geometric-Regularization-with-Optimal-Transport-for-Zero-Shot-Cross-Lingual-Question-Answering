@@ -51,7 +51,7 @@ def get_hf_token() -> Optional[str]:
     return token
 
 
-def run_quick_eval(eval_file: str, ckpt_path: str, stage1_ckpt: Optional[str] = None, model_name: str = "jhu-clsp/mmBERT-base") -> Tuple[float, float]:
+def run_quick_eval(eval_file: str, ckpt_path: str, stage1_ckpt: Optional[str] = None, model_name: str = "jhu-clsp/mmBERT-base", n_samples: int = 0) -> Tuple[float, float]:
     """
     Runs phase4-evaluation/quick_eval_mmbert.py as a subprocess.
     Returns (EM, F1) as floats.
@@ -70,6 +70,7 @@ def run_quick_eval(eval_file: str, ckpt_path: str, stage1_ckpt: Optional[str] = 
         "--ckpt", ckpt_path,
         "--eval_file", eval_file,
         "--model_name", model_name,
+        "--n_samples", str(n_samples),
     ]
     if stage1_ckpt and os.path.exists(stage1_ckpt) and ckpt_path != stage1_ckpt:
         cmd.extend(["--stage1_ckpt", stage1_ckpt])
@@ -102,6 +103,7 @@ def main():
     parser.add_argument("--hi_ckpt", type=str, default="checkpoint_stage2_hi/mmbert_m5_ours/stage2_hi_best.pt")
     parser.add_argument("--model_name", type=str, default="jhu-clsp/mmBERT-base")
     parser.add_argument("--hf_repo_id", type=str, default=DEFAULT_HF_REPO)
+    parser.add_argument("--n_samples", type=int, default=0, help="Number of samples to evaluate (0 for all)")
     parser.add_argument("--skip_mlqa", action="store_true", default=False)
     args = parser.parse_args()
 
@@ -139,7 +141,7 @@ def main():
     for lang in ["vi", "ar", "hi"]:
         ef = xquad_files[lang]
         log_msg(f"Evaluating M1 on XQuAD-{lang.upper()}...")
-        em, f1 = run_quick_eval(eval_file=ef, ckpt_path=args.stage1_ckpt, stage1_ckpt=None, model_name=args.model_name)
+        em, f1 = run_quick_eval(eval_file=ef, ckpt_path=args.stage1_ckpt, stage1_ckpt=None, model_name=args.model_name, n_samples=args.n_samples)
         results["xquad"][f"m1_{lang}"] = {"em": em, "f1": f1}
         log_msg(f"  -> M1 XQuAD-{lang.upper()}: EM={em:.2f}%, F1={f1:.2f}%")
 
@@ -149,7 +151,7 @@ def main():
         ef = xquad_files[lang]
         ckpt = m5_ckpts[lang]
         log_msg(f"Evaluating M5 on XQuAD-{lang.upper()} (Ckpt: {ckpt})...")
-        em, f1 = run_quick_eval(eval_file=ef, ckpt_path=ckpt, stage1_ckpt=args.stage1_ckpt, model_name=args.model_name)
+        em, f1 = run_quick_eval(eval_file=ef, ckpt_path=ckpt, stage1_ckpt=args.stage1_ckpt, model_name=args.model_name, n_samples=args.n_samples)
         results["xquad"][f"m5_{lang}"] = {"em": em, "f1": f1}
         log_msg(f"  -> M5 XQuAD-{lang.upper()}: EM={em:.2f}%, F1={f1:.2f}%")
 
