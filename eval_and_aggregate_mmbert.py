@@ -103,8 +103,11 @@ def main():
     parser.add_argument("--hi_ckpt", type=str, default="checkpoint_stage2_hi/mmbert_m5_ours/stage2_hi_best.pt")
     parser.add_argument("--model_name", type=str, default="jhu-clsp/mmBERT-base")
     parser.add_argument("--hf_repo_id", type=str, default=DEFAULT_HF_REPO)
-    parser.add_argument("--n_samples", type=int, default=0, help="Number of samples to evaluate (0 for all)")
+    parser.add_argument("--n_samples", type=int, default=0, help="Number of samples for XQuAD (0 for all)")
+    parser.add_argument("--mlqa_samples", type=int, default=0, help="Number of samples for MLQA (0 for all)")
+    parser.add_argument("--squad_samples", type=int, default=1000, help="Number of samples for SQuAD 2.0 Dev retention check (default 1000, 0 for all)")
     parser.add_argument("--skip_mlqa", action="store_true", default=False)
+    parser.add_argument("--skip_squad_dev", action="store_true", default=False)
     args = parser.parse_args()
 
     log_msg("=" * 70)
@@ -194,7 +197,52 @@ def main():
         else:
             log_msg(f"  No individual epoch checkpoints found for {lang.upper()} (only best checkpoint evaluated).")
 
-    # Format Markdown Table
+    # 4. Evaluate Cross-Lingual Transfer on MLQA (VI, AR, HI)
+    results["mlqa"] = {}
+    if not args.skip_mlqa:
+        log_msg("\n[PHASE 4/5] Evaluating Cross-Lingual Transfer on MLQA (VI, AR, HI)...")
+        mlqa_files = {
+            "vi": os.path.join(BASE_DIR, "dataset", "MLQA", "test-context-vi-question-vi.json"),
+            "ar": os.path.join(BASE_DIR, "dataset", "MLQA", "test-context-ar-question-ar.json"),
+            "hi": os.path.join(BASE_DIR, "dataset", "MLQA", "test-context-hi-question-hi.json"),
+        }
+        for lang in ["vi", "ar", "hi"]:
+            mf = mlqa_files[lang]
+            if os.path.exists(mf):
+                log_msg(f"Evaluating M1 on MLQA-{lang.upper()} ({mf})...")
+                em_m1, f1_m1 = run_quick_eval(eval_file=mf, ckpt_path=args.stage1_ckpt, stage1_ckpt=None, model_name=args.model_name, n_samples=args.mlqa_samples)
+                results["mlqa"][f"m1_{lang}"] = {"em": em_m1, "f1": f1_m1}
+                log_msg(f"  -> M1 MLQA-{lang.upper()}: EM={em_m1:.2f}%, F1={f1_m1:.2f}%")
+
+                ckpt = m5_ckpts[lang]
+                log_msg(f"Evaluating M5 on MLQA-{lang.upper()} (Ckpt: {ckpt})...")
+                em_m5, f1_m5 = run_quick_eval(eval_file=mf, ckpt_path=ckpt, stage1_ckpt=args.stage1_ckpt, model_name=args.model_name, n_samples=args.mlqa_samples)
+                results["mlqa"][f"m5_{lang}"] = {"em": em_m5, "f1": f1_m5}
+                log_msg(f"  -> M5 MLQA-{lang.upper()}: EM={em_m5:.2f}%, F1={f1_m5:.2f}%")
+            else:
+                log_msg(f"  [Warning] MLQA file for {lang.upper()} not found at {mf}")
+
+    # 5. Evaluate English Retention on SQuAD 2.0 Dev (Zero Catastrophic Forgetting)
+    results["english_retention"] = {}
+    if not args.skip_squad_dev:
+        log_msg("\n[PHASE 5/5] Evaluating English Retention on SQuAD 2.0 Dev (Zero Catastrophic Forgetting)...")
+        squad_dev_file = os.path.join(BASE_DIR, "dataset", "Squad2.0", "dev-v2.0.json")
+        if os.path.exists(squad_dev_file):
+            log_msg(f"Evaluating Stage 1 Base on SQuAD 2.0 Dev ({squad_dev_file})...")
+            em_s1, f1_s1 = run_quick_eval(eval_file=squad_dev_file, ckpt_path=args.stage1_ckpt, stage1_ckpt=None, model_name=args.model_name, n_samples=args.squad_samples)
+            results["english_retention"]["stage1_base"] = {"em": em_s1, "f1": f1_s1}
+            log_msg(f"  -> Stage 1 Base EN: EM={em_s1:.2f}%, F1={f1_s1:.2f}%")
+
+            for lang in ["vi", "ar", "hi"]:
+                ckpt = m5_ckpts[lang]
+                log_msg(f"Evaluating Stage 2 {lang.upper()} Model on SQuAD 2.0 Dev...")
+                em_ret, f1_ret = run_quick_eval(eval_file=squad_dev_file, ckpt_path=ckpt, stage1_ckpt=args.stage1_ckpt, model_name=args.model_name, n_samples=args.squad_samples)
+                results["english_retention"][f"stage2_{lang}"] = {"em": em_ret, "f1": f1_ret}
+                log_msg(f"  -> Stage 2 {lang.upper()} Model on EN: EM={em_ret:.2f}%, F1={f1_ret:.2f}% (Baseline={em_s1:.2f}%)")
+        else:
+            log_msg(f"  [Warning] SQuAD 2.0 Dev file not found at {squad_dev_file}")
+
+    # Format Markdown Tables
     m1_vi = results["xquad"].get("m1_vi", {"em": -1, "f1": -1})
     m5_vi = results["xquad"].get("m5_vi", {"em": -1, "f1": -1})
     m1_ar = results["xquad"].get("m1_ar", {"em": -1, "f1": -1})
@@ -214,6 +262,44 @@ def main():
         d_f1 = m_ours["f1"] - m_base["f1"]
         return f"+{d_em:.2f}/+{d_f1:.2f}" if d_em >= 0 else f"{d_em:.2f}/{d_f1:.2f}"
 
+    # MLQA Cells
+    mlqa_m1_vi = results["mlqa"].get("m1_vi", {"em": -1, "f1": -1})
+    mlqa_m5_vi = results["mlqa"].get("m5_vi", {"em": -1, "f1": -1})
+    mlqa_m1_ar = results["mlqa"].get("m1_ar", {"em": -1, "f1": -1})
+    mlqa_m5_ar = results["mlqa"].get("m5_ar", {"em": -1, "f1": -1})
+    mlqa_m1_hi = results["mlqa"].get("m1_hi", {"em": -1, "f1": -1})
+    mlqa_m5_hi = results["mlqa"].get("m5_hi", {"em": -1, "f1": -1})
+
+    mlqa_section = ""
+    if results["mlqa"]:
+        mlqa_section = f"""### 2. MLQA Benchmark Results (EM / F1)
+
+| Config | Vietnamese | Arabic | Hindi |
+| :--- | :---: | :---: | :---: |
+| **M1: Zero-shot (mmBERT)** | {fmt_cell(mlqa_m1_vi)} | {fmt_cell(mlqa_m1_ar)} | {fmt_cell(mlqa_m1_hi)} |
+| **M5: Ours (Best Checkpoint)** | **{fmt_cell(mlqa_m5_vi)}** | **{fmt_cell(mlqa_m5_ar)}** | **{fmt_cell(mlqa_m5_hi)}** |
+| **Gain (Δ Ours - M1)** | *{fmt_delta(mlqa_m1_vi, mlqa_m5_vi)}* | *{fmt_delta(mlqa_m1_ar, mlqa_m5_ar)}* | *{fmt_delta(mlqa_m1_hi, mlqa_m5_hi)}* |
+"""
+
+    # English Retention Cells
+    en_base = results["english_retention"].get("stage1_base", {"em": -1, "f1": -1})
+    en_ret_vi = results["english_retention"].get("stage2_vi", {"em": -1, "f1": -1})
+    en_ret_ar = results["english_retention"].get("stage2_ar", {"em": -1, "f1": -1})
+    en_ret_hi = results["english_retention"].get("stage2_hi", {"em": -1, "f1": -1})
+
+    retention_section = ""
+    if results["english_retention"]:
+        retention_section = f"""### 3. English Retention & Zero Catastrophic Forgetting (SQuAD 2.0 Dev)
+
+| Model Checkpoint | Target Language Adapted | English Dev (EM/F1) | Retention Delta vs Stage 1 |
+| :--- | :---: | :---: | :---: |
+| **Stage 1 Base (mmBERT)** | *English Only* | {fmt_cell(en_base)} | *0.00 / 0.00 (Reference)* |
+| **Stage 2 Model (VI)** | *Vietnamese* | {fmt_cell(en_ret_vi)} | *{fmt_delta(en_base, en_ret_vi)} (Preserved)* |
+| **Stage 2 Model (AR)** | *Arabic* | {fmt_cell(en_ret_ar)} | *{fmt_delta(en_base, en_ret_ar)} (Preserved)* |
+| **Stage 2 Model (HI)** | *Hindi* | {fmt_cell(en_ret_hi)} | *{fmt_delta(en_base, en_ret_hi)} (Preserved)* |
+"""
+
+    # Epoch rows for XQuAD
     epoch_rows = []
     if all_epoch_nums:
         for ep in sorted(all_epoch_nums):
@@ -223,7 +309,7 @@ def main():
             epoch_rows.append(f"| **Stage 2: Epoch {ep}** | {c_vi} | {c_ar} | {c_hi} |")
     epoch_table_section = ""
     if epoch_rows:
-        epoch_table_section = f"""### 2. Trajectory Across ALL Training Epochs
+        epoch_table_section = f"""### 4. Trajectory Across ALL Training Epochs (XQuAD)
 
 | Checkpoint / Epoch | Vietnamese | Arabic | Hindi |
 | :--- | :---: | :---: | :---: |
@@ -232,12 +318,12 @@ def main():
 | **Stage 2: Best Model** | **{fmt_cell(m5_vi)}** | **{fmt_cell(m5_ar)}** | **{fmt_cell(m5_hi)}** |
 """
 
-    md_content = f"""# mmBERT Cross-Lingual Transfer Results (XQuAD EM/F1)
+    md_content = f"""# mmBERT Comprehensive Cross-Lingual Evaluation Report
 
 **Model:** `{args.model_name}`  
 **Evaluated:** {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}  
 
-### 1. Executive Summary (Best vs Baseline)
+### 1. XQuAD Benchmark Results (EM / F1)
 
 | Config | Vietnamese | Arabic | Hindi |
 | :--- | :---: | :---: | :---: |
@@ -245,6 +331,8 @@ def main():
 | **M5: Ours (Best Checkpoint)** | **{fmt_cell(m5_vi)}** | **{fmt_cell(m5_ar)}** | **{fmt_cell(m5_hi)}** |
 | **Gain (Δ Ours - M1)** | *{fmt_delta(m1_vi, m5_vi)}* | *{fmt_delta(m1_ar, m5_ar)}* | *{fmt_delta(m1_hi, m5_hi)}* |
 
+{mlqa_section}
+{retention_section}
 {epoch_table_section}
 ---
 *Generated automatically by eval_and_aggregate_mmbert.py*

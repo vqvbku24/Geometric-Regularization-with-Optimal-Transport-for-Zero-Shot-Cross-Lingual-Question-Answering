@@ -26,6 +26,8 @@ def generate_predictions(args):
     if args.stage1_ckpt:
         print(f"Loading Stage 1 base from: {args.stage1_ckpt}")
         ckpt_stage1 = torch.load(args.stage1_ckpt, map_location=device)
+        if "target_layers" in ckpt_stage1 and ckpt_stage1["target_layers"]:
+            model.target_layers = ckpt_stage1["target_layers"]
         
         # Load Backbone
         model.load_state_dict(ckpt_stage1.get("model_state", ckpt_stage1), strict=False)
@@ -41,6 +43,10 @@ def generate_predictions(args):
     # 3. Load Stage 2 (LoRA Checkpoint)
     print(f"Loading Stage 2 weights from {args.ckpt}...")
     ckpt = torch.load(args.ckpt, map_location=device)
+    if "target_layers" in ckpt and ckpt["target_layers"]:
+        model.target_layers = ckpt["target_layers"]
+    elif "config" in ckpt and isinstance(ckpt["config"], dict) and ckpt["config"].get("target_layers"):
+        model.target_layers = ckpt["config"]["target_layers"]
     
     # Load Backbone LoRA weights
     model.load_state_dict(ckpt.get("model_state", ckpt), strict=False)
@@ -97,9 +103,10 @@ def generate_predictions(args):
                         attn_mask = inputs["attention_mask"][w].unsqueeze(0).to(device)
 
                         # Forward pass
-                        out = model.backbone(input_ids, attn_mask)
-                        stacked = torch.stack([out.hidden_states[i] for i in [6, 7, 8, 9]], dim=0)
-                        weights = torch.softmax(model.layer_weights, dim=0).view(4, 1, 1, 1)
+                        out = model.backbone(input_ids, attn_mask, output_hidden_states=True)
+                        target_layers = getattr(model, "target_layers", [6, 7, 8, 9])
+                        stacked = torch.stack([out.hidden_states[i] for i in target_layers], dim=0)
+                        weights = torch.softmax(model.layer_weights, dim=0).view(len(target_layers), 1, 1, 1)
                         hidden = (stacked * weights).sum(dim=0)
 
                         q_emb = hidden[:, :q_end_val, :]

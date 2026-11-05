@@ -279,7 +279,7 @@ fi
 # BƯỚC 5: Đánh giá Toàn Diện XQuAD & MLQA (M1 Baseline vs M5 Ours)
 # ───────────────────────────────────────────────────────────────────
 echo ""
-echo "[BƯỚC 5/6] Đánh giá toàn diện trên XQuAD & MLQA, xuất bảng báo cáo..."
+echo "[BƯỚC 5/6] Đánh giá toàn diện trên XQuAD, MLQA & SQuAD 2.0 English Retention..."
 python eval_and_aggregate_mmbert.py \
     --stage1_ckpt "$STAGE1_CKPT" \
     --vi_ckpt "$VI_BEST_CKPT" \
