@@ -95,90 +95,6 @@ def run_quick_eval(eval_file: str, ckpt_path: str, stage1_ckpt: Optional[str] = 
     return em, f1
 
 
-def run_mlqa_eval(
-    lang: str,
-    ckpt_path: str,
-    stage1_ckpt: Optional[str] = None,
-    tag: str = "m1",
-    model_name: str = "jhu-clsp/mmBERT-base",
-    n_samples: int = 0
-) -> Tuple[float, float]:
-    """
-    Evaluates MLQA using the official project methodology:
-    1. generate_mlqa_preds.py (sliding-window inference with stride=128, max_length=384)
-    2. mlqa_evaluation_v1.py (official Facebook MLQA evaluator with language normalization)
-    """
-    mlqa_file = os.path.join(BASE_DIR, "dataset", "MLQA", f"test-context-{lang}-question-{lang}.json")
-    if not os.path.exists(ckpt_path):
-        log_msg(f"  [MLQA {lang.upper()}] ❌ Checkpoint not found: {ckpt_path}")
-        return (-1.0, -1.0)
-    if not os.path.exists(mlqa_file):
-        log_msg(f"  [MLQA {lang.upper()}] ❌ MLQA data file not found: {mlqa_file}")
-        return (-1.0, -1.0)
-
-    pred_dir = os.path.join(BASE_DIR, "preds_mlqa")
-    os.makedirs(pred_dir, exist_ok=True)
-    pred_file = os.path.join(pred_dir, f"mlqa_preds_{lang}_{tag}.json")
-
-    env = os.environ.copy()
-    env["PYTHONUNBUFFERED"] = "1"
-    env["TOKENIZERS_PARALLELISM"] = "false"
-
-    # Step 1: Generate predictions with sliding window
-    gen_script = os.path.join(BASE_DIR, "generate_mlqa_preds.py")
-    cmd_gen = [
-        sys.executable, gen_script,
-        "--ckpt", ckpt_path,
-        "--eval_file", mlqa_file,
-        "--output_pred_file", pred_file,
-        "--model_name", model_name,
-        "--max_length", "384"
-    ]
-    if stage1_ckpt and os.path.exists(stage1_ckpt) and ckpt_path != stage1_ckpt:
-        cmd_gen.extend(["--stage1_ckpt", stage1_ckpt])
-    else:
-        cmd_gen.append("--zero_shot")
-    if n_samples > 0:
-        cmd_gen.extend(["--n_samples", str(n_samples)])
-
-    log_msg(f"  [MLQA {lang.upper()}] 1/2 Generating predictions: {' '.join(cmd_gen)}")
-    proc_gen = subprocess.run(cmd_gen, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
-    if proc_gen.returncode != 0 or not os.path.exists(pred_file):
-        log_msg(f"  [MLQA {lang.upper()}] ❌ Prediction generation failed:\n{proc_gen.stdout[-400:]}")
-        return (-1.0, -1.0)
-
-    # Step 2: Official MLQA evaluation (Facebook script with language normalization)
-    eval_script = os.path.join(BASE_DIR, "mlqa_evaluation_v1.py")
-    cmd_eval = [
-        sys.executable, eval_script,
-        mlqa_file,
-        pred_file,
-        lang
-    ]
-    log_msg(f"  [MLQA {lang.upper()}] 2/2 Official scoring: {' '.join(cmd_eval)}")
-    proc_eval = subprocess.run(cmd_eval, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
-    output = proc_eval.stdout
-
-    em, f1 = -1.0, -1.0
-    try:
-        lines = [ln.strip() for ln in output.strip().split("\n") if ln.strip()]
-        for ln in reversed(lines):
-            if ln.startswith("{") and "exact_match" in ln:
-                res = json.loads(ln)
-                em = float(res.get("exact_match", -1.0))
-                f1 = float(res.get("f1", -1.0))
-                break
-    except Exception as e:
-        log_msg(f"  [MLQA {lang.upper()}] ⚠ Failed to parse MLQA json: {e}")
-
-    if em >= 0 and f1 >= 0:
-        log_msg(f"  [MLQA {lang.upper()}] ✅ Official MLQA: EM={em:.2f}% | F1={f1:.2f}%")
-    else:
-        log_msg(f"  [MLQA {lang.upper()}] ⚠ Output:\n{output[-400:]}")
-
-    return em, f1
-
-
 def main():
     parser = argparse.ArgumentParser(description="Evaluate mmBERT Cross-Lingual Transfer on VI, AR, HI")
     parser.add_argument("--stage1_ckpt", type=str, default="checkpoints/stage1_squad_best_mmbert.pt")
@@ -285,7 +201,6 @@ def main():
     results["mlqa"] = {}
     if not args.skip_mlqa:
         log_msg("\n[PHASE 4/5] Evaluating Cross-Lingual Transfer on MLQA (VI, AR, HI)...")
-        log_msg("  (Using official generate_mlqa_preds.py sliding-window + mlqa_evaluation_v1.py)")
         mlqa_files = {
             "vi": os.path.join(BASE_DIR, "dataset", "MLQA", "test-context-vi-question-vi.json"),
             "ar": os.path.join(BASE_DIR, "dataset", "MLQA", "test-context-ar-question-ar.json"),
@@ -295,56 +210,37 @@ def main():
             mf = mlqa_files[lang]
             if os.path.exists(mf):
                 log_msg(f"Evaluating M1 on MLQA-{lang.upper()} ({mf})...")
-                em_m1, f1_m1 = run_mlqa_eval(lang=lang, ckpt_path=args.stage1_ckpt, stage1_ckpt=None, tag="m1", model_name=args.model_name, n_samples=args.mlqa_samples)
+                em_m1, f1_m1 = run_quick_eval(eval_file=mf, ckpt_path=args.stage1_ckpt, stage1_ckpt=None, model_name=args.model_name, n_samples=args.mlqa_samples)
                 results["mlqa"][f"m1_{lang}"] = {"em": em_m1, "f1": f1_m1}
                 log_msg(f"  -> M1 MLQA-{lang.upper()}: EM={em_m1:.2f}%, F1={f1_m1:.2f}%")
 
                 ckpt = m5_ckpts[lang]
                 log_msg(f"Evaluating M5 on MLQA-{lang.upper()} (Ckpt: {ckpt})...")
-                em_m5, f1_m5 = run_mlqa_eval(lang=lang, ckpt_path=ckpt, stage1_ckpt=args.stage1_ckpt, tag="m5", model_name=args.model_name, n_samples=args.mlqa_samples)
+                em_m5, f1_m5 = run_quick_eval(eval_file=mf, ckpt_path=ckpt, stage1_ckpt=args.stage1_ckpt, model_name=args.model_name, n_samples=args.mlqa_samples)
                 results["mlqa"][f"m5_{lang}"] = {"em": em_m5, "f1": f1_m5}
                 log_msg(f"  -> M5 MLQA-{lang.upper()}: EM={em_m5:.2f}%, F1={f1_m5:.2f}%")
             else:
                 log_msg(f"  [Warning] MLQA file for {lang.upper()} not found at {mf}")
 
-    # 5. Evaluate English Retention on SQuAD 2.0 Dev & XQuAD English (Zero Catastrophic Forgetting)
+    # 5. Evaluate English Retention on SQuAD 2.0 Dev (Zero Catastrophic Forgetting)
     results["english_retention"] = {}
     if not args.skip_squad_dev:
-        log_msg("\n[PHASE 5/5] Evaluating English Retention on SQuAD 2.0 Dev & XQuAD English (Zero Catastrophic Forgetting)...")
+        log_msg("\n[PHASE 5/5] Evaluating English Retention on SQuAD 2.0 Dev (Zero Catastrophic Forgetting)...")
         squad_dev_file = os.path.join(BASE_DIR, "dataset", "Squad2.0", "dev-v2.0.json")
-        xquad_en_file = os.path.join(BASE_DIR, "dataset", "xquad.en.json")
-
-        # 5A. SQuAD 2.0 Dev
         if os.path.exists(squad_dev_file):
             log_msg(f"Evaluating Stage 1 Base on SQuAD 2.0 Dev ({squad_dev_file})...")
             em_s1, f1_s1 = run_quick_eval(eval_file=squad_dev_file, ckpt_path=args.stage1_ckpt, stage1_ckpt=None, model_name=args.model_name, n_samples=args.squad_samples)
-            results["english_retention"]["squad_stage1_base"] = {"em": em_s1, "f1": f1_s1}
-            log_msg(f"  -> Stage 1 Base SQuAD 2.0 EN: EM={em_s1:.2f}%, F1={f1_s1:.2f}%")
+            results["english_retention"]["stage1_base"] = {"em": em_s1, "f1": f1_s1}
+            log_msg(f"  -> Stage 1 Base EN: EM={em_s1:.2f}%, F1={f1_s1:.2f}%")
 
             for lang in ["vi", "ar", "hi"]:
                 ckpt = m5_ckpts[lang]
                 log_msg(f"Evaluating Stage 2 {lang.upper()} Model on SQuAD 2.0 Dev...")
                 em_ret, f1_ret = run_quick_eval(eval_file=squad_dev_file, ckpt_path=ckpt, stage1_ckpt=args.stage1_ckpt, model_name=args.model_name, n_samples=args.squad_samples)
-                results["english_retention"][f"squad_stage2_{lang}"] = {"em": em_ret, "f1": f1_ret}
-                log_msg(f"  -> Stage 2 {lang.upper()} Model on SQuAD 2.0 EN: EM={em_ret:.2f}%, F1={f1_ret:.2f}% (Baseline={em_s1:.2f}%)")
+                results["english_retention"][f"stage2_{lang}"] = {"em": em_ret, "f1": f1_ret}
+                log_msg(f"  -> Stage 2 {lang.upper()} Model on EN: EM={em_ret:.2f}%, F1={f1_ret:.2f}% (Baseline={em_s1:.2f}%)")
         else:
             log_msg(f"  [Warning] SQuAD 2.0 Dev file not found at {squad_dev_file}")
-
-        # 5B. XQuAD English
-        if os.path.exists(xquad_en_file):
-            log_msg(f"Evaluating Stage 1 Base on XQuAD English ({xquad_en_file})...")
-            em_xe_s1, f1_xe_s1 = run_quick_eval(eval_file=xquad_en_file, ckpt_path=args.stage1_ckpt, stage1_ckpt=None, model_name=args.model_name, n_samples=0)
-            results["english_retention"]["xquad_en_stage1_base"] = {"em": em_xe_s1, "f1": f1_xe_s1}
-            log_msg(f"  -> Stage 1 Base XQuAD-EN: EM={em_xe_s1:.2f}%, F1={f1_xe_s1:.2f}%")
-
-            for lang in ["vi", "ar", "hi"]:
-                ckpt = m5_ckpts[lang]
-                log_msg(f"Evaluating Stage 2 {lang.upper()} Model on XQuAD English...")
-                em_xe_ret, f1_xe_ret = run_quick_eval(eval_file=xquad_en_file, ckpt_path=ckpt, stage1_ckpt=args.stage1_ckpt, model_name=args.model_name, n_samples=0)
-                results["english_retention"][f"xquad_en_stage2_{lang}"] = {"em": em_xe_ret, "f1": f1_xe_ret}
-                log_msg(f"  -> Stage 2 {lang.upper()} Model on XQuAD-EN: EM={em_xe_ret:.2f}%, F1={f1_xe_ret:.2f}% (Baseline={em_xe_s1:.2f}%)")
-        else:
-            log_msg(f"  [Warning] XQuAD English file not found at {xquad_en_file}")
 
     # Format Markdown Tables
     m1_vi = results["xquad"].get("m1_vi", {"em": -1, "f1": -1})
@@ -376,9 +272,9 @@ def main():
 
     mlqa_section = ""
     if results["mlqa"]:
-        mlqa_section = f"""### 2. MLQA Benchmark Results (Official Facebook Eval - EM / F1)
+        mlqa_section = f"""### 2. MLQA Benchmark Results (EM / F1)
 
-| Config | Vietnamese (MLQA-vi) | Arabic (MLQA-ar) | Hindi (MLQA-hi) |
+| Config | Vietnamese | Arabic | Hindi |
 | :--- | :---: | :---: | :---: |
 | **M1: Zero-shot (mmBERT)** | {fmt_cell(mlqa_m1_vi)} | {fmt_cell(mlqa_m1_ar)} | {fmt_cell(mlqa_m1_hi)} |
 | **M5: Ours (Best Checkpoint)** | **{fmt_cell(mlqa_m5_vi)}** | **{fmt_cell(mlqa_m5_ar)}** | **{fmt_cell(mlqa_m5_hi)}** |
@@ -386,30 +282,21 @@ def main():
 """
 
     # English Retention Cells
-    sq_base = results["english_retention"].get("squad_stage1_base", {"em": -1, "f1": -1})
-    sq_vi = results["english_retention"].get("squad_stage2_vi", {"em": -1, "f1": -1})
-    sq_ar = results["english_retention"].get("squad_stage2_ar", {"em": -1, "f1": -1})
-    sq_hi = results["english_retention"].get("squad_stage2_hi", {"em": -1, "f1": -1})
-
-    xq_base = results["english_retention"].get("xquad_en_stage1_base", {"em": -1, "f1": -1})
-    xq_vi = results["english_retention"].get("xquad_en_stage2_vi", {"em": -1, "f1": -1})
-    xq_ar = results["english_retention"].get("xquad_en_stage2_ar", {"em": -1, "f1": -1})
-    xq_hi = results["english_retention"].get("xquad_en_stage2_hi", {"em": -1, "f1": -1})
+    en_base = results["english_retention"].get("stage1_base", {"em": -1, "f1": -1})
+    en_ret_vi = results["english_retention"].get("stage2_vi", {"em": -1, "f1": -1})
+    en_ret_ar = results["english_retention"].get("stage2_ar", {"em": -1, "f1": -1})
+    en_ret_hi = results["english_retention"].get("stage2_hi", {"em": -1, "f1": -1})
 
     retention_section = ""
     if results["english_retention"]:
-        retention_section = f"""### 3. English Retention & Zero Catastrophic Forgetting
+        retention_section = f"""### 3. English Retention & Zero Catastrophic Forgetting (SQuAD 2.0 Dev)
 
-| Benchmark | Model Checkpoint | Target Language Adapted | English Score (EM / F1) | Retention Delta vs Stage 1 |
-| :--- | :--- | :---: | :---: | :---: |
-| **SQuAD 2.0 Dev** | **Stage 1 Base (mmBERT)** | *English Only* | {fmt_cell(sq_base)} | *0.00 / 0.00 (Reference)* |
-| **SQuAD 2.0 Dev** | **Stage 2 Model (VI)** | *Vietnamese* | {fmt_cell(sq_vi)} | *{fmt_delta(sq_base, sq_vi)} (Preserved)* |
-| **SQuAD 2.0 Dev** | **Stage 2 Model (AR)** | *Arabic* | {fmt_cell(sq_ar)} | *{fmt_delta(sq_base, sq_ar)} (Preserved)* |
-| **SQuAD 2.0 Dev** | **Stage 2 Model (HI)** | *Hindi* | {fmt_cell(sq_hi)} | *{fmt_delta(sq_base, sq_hi)} (Preserved)* |
-| **XQuAD-EN** | **Stage 1 Base (mmBERT)** | *English Only* | {fmt_cell(xq_base)} | *0.00 / 0.00 (Reference)* |
-| **XQuAD-EN** | **Stage 2 Model (VI)** | *Vietnamese* | {fmt_cell(xq_vi)} | *{fmt_delta(xq_base, xq_vi)} (Preserved)* |
-| **XQuAD-EN** | **Stage 2 Model (AR)** | *Arabic* | {fmt_cell(xq_ar)} | *{fmt_delta(xq_base, xq_ar)} (Preserved)* |
-| **XQuAD-EN** | **Stage 2 Model (HI)** | *Hindi* | {fmt_cell(xq_hi)} | *{fmt_delta(xq_base, xq_hi)} (Preserved)* |
+| Model Checkpoint | Target Language Adapted | English Dev (EM/F1) | Retention Delta vs Stage 1 |
+| :--- | :---: | :---: | :---: |
+| **Stage 1 Base (mmBERT)** | *English Only* | {fmt_cell(en_base)} | *0.00 / 0.00 (Reference)* |
+| **Stage 2 Model (VI)** | *Vietnamese* | {fmt_cell(en_ret_vi)} | *{fmt_delta(en_base, en_ret_vi)} (Preserved)* |
+| **Stage 2 Model (AR)** | *Arabic* | {fmt_cell(en_ret_ar)} | *{fmt_delta(en_base, en_ret_ar)} (Preserved)* |
+| **Stage 2 Model (HI)** | *Hindi* | {fmt_cell(en_ret_hi)} | *{fmt_delta(en_base, en_ret_hi)} (Preserved)* |
 """
 
     # Epoch rows for XQuAD
@@ -499,19 +386,7 @@ def main():
                 repo_id=args.hf_repo_id,
                 repo_type="model"
             )
-
-            # Upload MLQA prediction files if present
-            pred_dir = os.path.join(BASE_DIR, "preds_mlqa")
-            if os.path.exists(pred_dir):
-                for pf in glob.glob(os.path.join(pred_dir, "*.json")):
-                    bname = os.path.basename(pf)
-                    api.upload_file(
-                        path_or_fileobj=pf,
-                        path_in_repo=f"mmBERT/predictions/{bname}",
-                        repo_id=args.hf_repo_id,
-                        repo_type="model"
-                    )
-            log_msg("✓ Evaluation results and MLQA predictions uploaded to Hugging Face successfully (mmBERT/)!")
+            log_msg("✓ Evaluation results uploaded to Hugging Face successfully (mmBERT/)!")
         except Exception as e:
             log_msg(f"  [Warning] Hugging Face upload failed: {e}")
 
