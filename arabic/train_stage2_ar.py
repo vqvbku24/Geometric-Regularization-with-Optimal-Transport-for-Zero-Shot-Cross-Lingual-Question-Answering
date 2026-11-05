@@ -173,13 +173,14 @@ def upload_checkpoint_to_hf(ckpt_path: str, config: dict):
     try:
         from huggingface_hub import HfApi
         api = HfApi(token=token)
+        prefix = "mmBERT/" if "mmbert" in config.get("model_name", "").lower() else ""
         try:
             rel_dir = os.path.relpath(config['output_dir'], config.get('root_dir', '.'))
-            if rel_dir.startswith('..'):
+            if rel_dir.startswith('..') or rel_dir == '.':
                 rel_dir = os.path.basename(os.path.normpath(config['output_dir']))
         except Exception:
             rel_dir = os.path.basename(os.path.normpath(config['output_dir']))
-        path_in_repo = os.path.join(rel_dir, os.path.basename(ckpt_path)).replace('\\', '/')
+        path_in_repo = f"{prefix}{rel_dir}/{os.path.basename(ckpt_path)}".replace('\\', '/')
         log.info(f'  [HF Hub] Uploading {os.path.basename(ckpt_path)} -> {path_in_repo} ({config["hf_repo_id"]})...')
         api.upload_file(
             path_or_fileobj=ckpt_path,
@@ -187,6 +188,18 @@ def upload_checkpoint_to_hf(ckpt_path: str, config: dict):
             repo_id=config['hf_repo_id'],
             repo_type='model',
         )
+        # Also upload Tensorboard if available
+        tb_dir = os.path.join(config['output_dir'], 'tensorboard_stage2_ar')
+        if os.path.exists(tb_dir):
+            try:
+                api.upload_folder(
+                    folder_path=tb_dir,
+                    path_in_repo=f"{prefix}logs/{os.path.basename(rel_dir)}_tensorboard",
+                    repo_id=config['hf_repo_id'],
+                    repo_type='model',
+                )
+            except Exception:
+                pass
         log.info(f'  [HF Hub] ✅ Uploaded successfully: {path_in_repo}')
     except Exception as e:
         log.error(f'  [HF Hub] ⚠ Upload checkpoint error (local file still safe): {e}')

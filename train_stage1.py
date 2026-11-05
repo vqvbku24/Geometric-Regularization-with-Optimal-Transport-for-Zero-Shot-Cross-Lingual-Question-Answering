@@ -12,6 +12,12 @@ from transformers import AutoTokenizer
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+except ImportError:
+    pass
+
 from phase1_dataloader.process_qa_sample import load_squad_data, process_qa_sample
 from phase2_model.model_core import CrossLingualOTModel
 from phase3_loss.losses import OTAlignmentLoss
@@ -182,7 +188,45 @@ def run_stage1(config):
                 log.error(f"Eval failed: {e}")
                 em = 0.0
                 
-            # Save best model
+            # 1. Save epoch checkpoint for every epoch (trajectory tracking)
+            ep_ckpt_name = f"stage1_squad_epoch_{epoch:03d}.pt"
+            ep_save_path = os.path.join(config["root_dir"], "checkpoints", ep_ckpt_name)
+            torch.save({
+                "epoch": epoch,
+                "model_state": get_model(model).state_dict(),
+                "criterion_state": criterion.state_dict(),
+                "em": em,
+                "model_name": config["model_name"],
+                "target_layers": get_model(model).target_layers,
+            }, ep_save_path)
+            log.info(f"💾 Saved Stage 1 epoch checkpoint: {ep_save_path} (EM: {em:.2f}%)")
+
+            # Upload epoch checkpoint to Hugging Face
+            if config.get("hf_repo_id"):
+                try:
+                    from huggingface_hub import HfApi
+                    token = os.environ.get("HF_TOKEN")
+                    if not token:
+                        token_file = os.path.join(config["root_dir"], ".hf_token")
+                        if os.path.exists(token_file):
+                            with open(token_file, "r", encoding="utf-8") as tf:
+                                token = tf.read().strip()
+                    if token:
+                        api = HfApi(token=token)
+                        prefix = "mmBERT/" if "mmbert" in config.get("model_name", "").lower() else ""
+                        ep_repo_path = f"{prefix}checkpoints/{ep_ckpt_name}"
+                        log.info(f"   Uploading Stage 1 epoch {epoch} to Hugging Face: {ep_repo_path} ({config['hf_repo_id']})...")
+                        api.upload_file(
+                            path_or_fileobj=ep_save_path,
+                            path_in_repo=ep_repo_path,
+                            repo_id=config["hf_repo_id"],
+                            repo_type="model"
+                        )
+                        log.info(f"   ✅ Stage 1 epoch {epoch} uploaded successfully!")
+                except Exception as e:
+                    log.error(f"   Upload Stage 1 epoch {epoch} error: {e}")
+
+            # 2. Save best model
             if em >= best_em:
                 best_em = em
                 if config.get("checkpoint_name"):
@@ -201,6 +245,31 @@ def run_stage1(config):
                     "target_layers": get_model(model).target_layers,
                 }, save_path)
                 log.info(f"🏆 Saved best Stage 1 checkpoint to {save_path} (EM: {em:.2f}%)")
+
+                # Upload best Stage 1 checkpoint to Hugging Face
+                if config.get("hf_repo_id"):
+                    try:
+                        from huggingface_hub import HfApi
+                        token = os.environ.get("HF_TOKEN")
+                        if not token:
+                            token_file = os.path.join(config["root_dir"], ".hf_token")
+                            if os.path.exists(token_file):
+                                with open(token_file, "r", encoding="utf-8") as tf:
+                                    token = tf.read().strip()
+                        if token:
+                            api = HfApi(token=token)
+                            prefix = "mmBERT/" if "mmbert" in config.get("model_name", "").lower() else ""
+                            repo_path = f"{prefix}checkpoints/{ckpt_name}"
+                            log.info(f"   Uploading Stage 1 best checkpoint to Hugging Face: {repo_path} ({config['hf_repo_id']})...")
+                            api.upload_file(
+                                path_or_fileobj=save_path,
+                                path_in_repo=repo_path,
+                                repo_id=config["hf_repo_id"],
+                                repo_type="model"
+                            )
+                            log.info(f"   ✅ Stage 1 best checkpoint uploaded to Hugging Face Hub successfully!")
+                    except Exception as e:
+                        log.error(f"   Upload Stage 1 checkpoint error (local file still safe): {e}")
 
         if torch.distributed.is_initialized():
             torch.distributed.barrier()

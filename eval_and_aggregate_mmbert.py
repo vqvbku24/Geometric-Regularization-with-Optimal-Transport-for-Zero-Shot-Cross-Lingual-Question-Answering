@@ -145,8 +145,8 @@ def main():
         results["xquad"][f"m1_{lang}"] = {"em": em, "f1": f1}
         log_msg(f"  -> M1 XQuAD-{lang.upper()}: EM={em:.2f}%, F1={f1:.2f}%")
 
-    # 2. Evaluate M5 (Ours) on all 3 languages
-    log_msg("\n[PHASE 2/2] Evaluating M5 (Ours - Full Coordinated Stage 2)...")
+    # 2. Evaluate M5 (Ours) on all 3 languages (Best Checkpoints)
+    log_msg("\n[PHASE 2/3] Evaluating M5 (Ours - Best Checkpoints)...")
     for lang in ["vi", "ar", "hi"]:
         ef = xquad_files[lang]
         ckpt = m5_ckpts[lang]
@@ -154,6 +154,45 @@ def main():
         em, f1 = run_quick_eval(eval_file=ef, ckpt_path=ckpt, stage1_ckpt=args.stage1_ckpt, model_name=args.model_name, n_samples=args.n_samples)
         results["xquad"][f"m5_{lang}"] = {"em": em, "f1": f1}
         log_msg(f"  -> M5 XQuAD-{lang.upper()}: EM={em:.2f}%, F1={f1:.2f}%")
+
+    # 3. Evaluate ALL Epoch Checkpoints for each language
+    import glob
+    results["epochs"] = {"vi": {}, "ar": {}, "hi": {}}
+    log_msg("\n[PHASE 3/3] Evaluating Trajectory Across ALL Epochs (VI, AR, HI)...")
+
+    def find_epoch_checkpoints(ckpt_file: str, lang: str):
+        search_dirs = [
+            os.path.dirname(ckpt_file),
+            os.path.join(os.path.dirname(ckpt_file), "mmbert_m5_ours"),
+            os.path.join(BASE_DIR, f"checkpoint_stage2_{lang}", "mmbert_m5_ours"),
+            os.path.join(BASE_DIR, f"checkpoint_stage2_{lang}"),
+        ]
+        prefix = f"stage2_{lang}_epoch_" if lang != "vi" else "stage2_epoch_"
+        found = {}
+        for d in search_dirs:
+            if not os.path.exists(d):
+                continue
+            for pt in glob.glob(os.path.join(d, f"{prefix}*.pt")):
+                m = re.search(r"epoch_(\d+)\.pt", os.path.basename(pt))
+                if m:
+                    ep_num = int(m.group(1))
+                    found[ep_num] = pt
+        return dict(sorted(found.items()))
+
+    all_epoch_nums = set()
+    for lang in ["vi", "ar", "hi"]:
+        ef = xquad_files[lang]
+        ep_ckpts = find_epoch_checkpoints(m5_ckpts[lang], lang)
+        if ep_ckpts:
+            log_msg(f"Found {len(ep_ckpts)} epoch checkpoints for {lang.upper()}: {list(ep_ckpts.keys())}")
+            all_epoch_nums.update(ep_ckpts.keys())
+            for ep, ep_path in ep_ckpts.items():
+                log_msg(f"  Evaluating {lang.upper()} Epoch {ep} ({ep_path})...")
+                em, f1 = run_quick_eval(eval_file=ef, ckpt_path=ep_path, stage1_ckpt=args.stage1_ckpt, model_name=args.model_name, n_samples=args.n_samples)
+                results["epochs"][lang][str(ep)] = {"em": em, "f1": f1}
+                log_msg(f"    -> Epoch {ep} {lang.upper()}: EM={em:.2f}%, F1={f1:.2f}%")
+        else:
+            log_msg(f"  No individual epoch checkpoints found for {lang.upper()} (only best checkpoint evaluated).")
 
     # Format Markdown Table
     m1_vi = results["xquad"].get("m1_vi", {"em": -1, "f1": -1})
@@ -164,28 +203,49 @@ def main():
     m5_hi = results["xquad"].get("m5_hi", {"em": -1, "f1": -1})
 
     def fmt_cell(m):
-        if m["em"] < 0:
+        if not m or m.get("em", -1) < 0:
             return "N/A"
         return f"{m['em']:.2f}/{m['f1']:.2f}"
 
     def fmt_delta(m_base, m_ours):
-        if m_base["em"] < 0 or m_ours["em"] < 0:
+        if not m_base or not m_ours or m_base.get("em", -1) < 0 or m_ours.get("em", -1) < 0:
             return "N/A"
         d_em = m_ours["em"] - m_base["em"]
         d_f1 = m_ours["f1"] - m_base["f1"]
         return f"+{d_em:.2f}/+{d_f1:.2f}" if d_em >= 0 else f"{d_em:.2f}/{d_f1:.2f}"
+
+    epoch_rows = []
+    if all_epoch_nums:
+        for ep in sorted(all_epoch_nums):
+            c_vi = fmt_cell(results["epochs"]["vi"].get(str(ep)))
+            c_ar = fmt_cell(results["epochs"]["ar"].get(str(ep)))
+            c_hi = fmt_cell(results["epochs"]["hi"].get(str(ep)))
+            epoch_rows.append(f"| **Stage 2: Epoch {ep}** | {c_vi} | {c_ar} | {c_hi} |")
+    epoch_table_section = ""
+    if epoch_rows:
+        epoch_table_section = f"""### 2. Trajectory Across ALL Training Epochs
+
+| Checkpoint / Epoch | Vietnamese | Arabic | Hindi |
+| :--- | :---: | :---: | :---: |
+| **M1: Zero-shot (Stage 1)** | {fmt_cell(m1_vi)} | {fmt_cell(m1_ar)} | {fmt_cell(m1_hi)} |
+""" + "\n".join(epoch_rows) + f"""
+| **Stage 2: Best Model** | **{fmt_cell(m5_vi)}** | **{fmt_cell(m5_ar)}** | **{fmt_cell(m5_hi)}** |
+"""
 
     md_content = f"""# mmBERT Cross-Lingual Transfer Results (XQuAD EM/F1)
 
 **Model:** `{args.model_name}`  
 **Evaluated:** {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}  
 
+### 1. Executive Summary (Best vs Baseline)
+
 | Config | Vietnamese | Arabic | Hindi |
 | :--- | :---: | :---: | :---: |
 | **M1: Zero-shot (mmBERT)** | {fmt_cell(m1_vi)} | {fmt_cell(m1_ar)} | {fmt_cell(m1_hi)} |
-| **M5: Ours (Full OT)** | **{fmt_cell(m5_vi)}** | **{fmt_cell(m5_ar)}** | **{fmt_cell(m5_hi)}** |
+| **M5: Ours (Best Checkpoint)** | **{fmt_cell(m5_vi)}** | **{fmt_cell(m5_ar)}** | **{fmt_cell(m5_hi)}** |
 | **Gain (Δ Ours - M1)** | *{fmt_delta(m1_vi, m5_vi)}* | *{fmt_delta(m1_ar, m5_ar)}* | *{fmt_delta(m1_hi, m5_hi)}* |
 
+{epoch_table_section}
 ---
 *Generated automatically by eval_and_aggregate_mmbert.py*
 """
@@ -211,20 +271,34 @@ def main():
         try:
             from huggingface_hub import HfApi
             api = HfApi(token=hf_token)
-            log_msg(f"Uploading evaluation results to Hugging Face: {args.hf_repo_id}...")
+            log_msg(f"Uploading evaluation results to Hugging Face (folder: mmBERT/): {args.hf_repo_id}...")
+            # Upload to mmBERT/ folder for dedicated tracking
+            api.upload_file(
+                path_or_fileobj=out_md,
+                path_in_repo="mmBERT/results/results_mmbert_pipeline.md",
+                repo_id=args.hf_repo_id,
+                repo_type="model"
+            )
+            api.upload_file(
+                path_or_fileobj=out_md,
+                path_in_repo="mmBERT/README.md",
+                repo_id=args.hf_repo_id,
+                repo_type="model"
+            )
+            api.upload_file(
+                path_or_fileobj=out_json,
+                path_in_repo="mmBERT/results/results_mmbert_pipeline.json",
+                repo_id=args.hf_repo_id,
+                repo_type="model"
+            )
+            # Backward compatibility copy
             api.upload_file(
                 path_or_fileobj=out_md,
                 path_in_repo="results/results_mmbert_pipeline.md",
                 repo_id=args.hf_repo_id,
                 repo_type="model"
             )
-            api.upload_file(
-                path_or_fileobj=out_json,
-                path_in_repo="results/results_mmbert_pipeline.json",
-                repo_id=args.hf_repo_id,
-                repo_type="model"
-            )
-            log_msg("✓ Evaluation results uploaded to Hugging Face successfully!")
+            log_msg("✓ Evaluation results uploaded to Hugging Face successfully (mmBERT/)!")
         except Exception as e:
             log_msg(f"  [Warning] Hugging Face upload failed: {e}")
 

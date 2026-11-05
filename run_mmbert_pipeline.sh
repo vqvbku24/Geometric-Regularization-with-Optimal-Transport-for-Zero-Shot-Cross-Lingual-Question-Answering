@@ -289,13 +289,18 @@ python eval_and_aggregate_mmbert.py \
     --hf_repo_id "$HF_REPO"
 
 # ───────────────────────────────────────────────────────────────────
-# BƯỚC 6: Tổng kết & Hoàn tất
+# BƯỚC 6: Đồng bộ toàn bộ Assets lên Hugging Face Hub (mmBERT/) & Tổng kết
 # ───────────────────────────────────────────────────────────────────
+echo ""
+echo "[BƯỚC 6/6] Đồng bộ toàn bộ kết quả, checkpoints & logs lên Hugging Face Hub (thư mục: mmBERT/)..."
+python upload_all_mmbert_to_hf.py --repo_id "$HF_REPO" --prefix "mmBERT" || true
+
 echo ""
 echo "======================================================================"
 echo "  🎉 PIPELINE mmBERT HOÀN TẤT THÀNH CÔNG!"
 echo "  Bảng kết quả đã được lưu tại: results_mmbert_pipeline.md"
 echo "  File JSON số liệu:            results_mmbert_pipeline.json"
+echo "  Đường dẫn xem trên Hub:       https://huggingface.co/$HF_REPO/tree/main/mmBERT"
 echo "  Thời gian kết thúc:           $(date)"
 echo "======================================================================"
 
