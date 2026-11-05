@@ -88,7 +88,7 @@ def run_smoke_tests(model_name: str = "jhu-clsp/mmBERT-base", device_str: str = 
         default_layers = model_default.target_layers
         print(f"  ✓ Default target_layers auto-detected: {default_layers}")
         if "mmbert" in model_name.lower():
-            assert default_layers == [10, 13, 16, 19], f"Expected [10, 13, 16, 19] for mmBERT, got {default_layers}"
+            assert default_layers == [12, 15, 18, 21], f"Expected [12, 15, 18, 21] for mmBERT, got {default_layers}"
         assert len(model_default.layer_weights) == len(default_layers), "layer_weights length mismatch"
 
         # Custom configurable target layers
@@ -347,7 +347,7 @@ def run_smoke_tests(model_name: str = "jhu-clsp/mmBERT-base", device_str: str = 
 
         with torch.no_grad():
             out = model_eval.backbone(input_ids, attn_mask, output_hidden_states=True)
-            target_layers = getattr(model_eval, "target_layers", [10, 13, 16, 19])
+            target_layers = getattr(model_eval, "target_layers", [12, 15, 18, 21])
             stacked = torch.stack([out.hidden_states[l] for l in target_layers], dim=0)
             weights = torch.softmax(model_eval.layer_weights, dim=0).view(len(target_layers), 1, 1, 1)
             hidden = (stacked * weights).sum(dim=0)

@@ -4,7 +4,7 @@
 #
 # FULL END-TO-END PIPELINE FOR mmBERT (ModernBERT architecture, 22 layers):
 # 1. Multi-GPU auto-detection & DDP orchestration via torchrun
-# 2. Stage 1: Fine-tune mmBERT on SQuAD (Batch Size 32, Target Layers: 10 13 16 19)
+# 2. Stage 1: Fine-tune mmBERT on SQuAD (Batch Size 32, Target Layers: 12 15 18 21)
 # 3. Stage 2 VI: Teacher-Student Sinkhorn OT for Vietnamese (M5 Ours)
 # 4. Stage 2 AR: Teacher-Student Sinkhorn OT for Arabic (M5 Ours)
 # 5. Stage 2 HI: Teacher-Student Sinkhorn OT for Hindi (M5 Ours)
@@ -31,7 +31,7 @@ fi
 
 # ── Cấu hình mặc định ────────────────────────────────────────────────────────
 MODEL_NAME="jhu-clsp/mmBERT-base"
-TARGET_LAYERS="10 13 16 19"
+TARGET_LAYERS="12 15 18 21"
 BATCH_SIZE=32
 STAGE1_EPOCHS=6
 STAGE2_EPOCHS=6
@@ -63,7 +63,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --target_layers)
-            # Custom target layers passed as string e.g. "10 13 16 19"
+            # Custom target layers passed as string e.g. "12 15 18 21"
             TARGET_LAYERS="$2"
             shift 2
             ;;

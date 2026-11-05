@@ -23,11 +23,11 @@ def get_default_target_layers(config) -> list[int]:
     """
     Tự động chọn target layers ở khoảng độ sâu 50% - 75% của backbone.
     - XLM-R (12 layers): [6, 7, 8, 9]
-    - mmBERT (22 layers): [10, 13, 16, 19] (Global Attention sweet-spot)
+    - mmBERT (22 layers): [12, 15, 18, 21] (100% Global Attention sweet-spot, layers % 3 == 0)
     """
     num_layers = getattr(config, "num_hidden_layers", 12)
     if num_layers == 22:
-        return [10, 13, 16, 19]
+        return [12, 15, 18, 21]
     elif num_layers == 12:
         return [6, 7, 8, 9]
     else:
