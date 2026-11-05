@@ -357,7 +357,10 @@ def run_smoke_tests(model_name: str = "jhu-clsp/mmBERT-base", device_str: str = 
 
             assert start_logits.shape == (1, 64)
             assert end_logits.shape == (1, 64)
-            assert has_ans_logit.shape == (1, 1)
+            assert has_ans_logit.shape == (1,), f"Expected shape (1,) from QAHead, got {has_ans_logit.shape}"
+            # Verify .item() works identically to quick_eval_mmbert.py (lines 121, 389)
+            pred_answerable = has_ans_logit.item() > 0
+            assert isinstance(pred_answerable, bool)
         
         print("  ✓ Span extraction, QA head logits & MLQA multilingual metrics verified!")
         results["8_eval_and_metrics"] = "PASS"
