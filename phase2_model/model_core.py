@@ -54,6 +54,11 @@ class CrossLingualOTModel(nn.Module):
         self.compute_cost_matrix = compute_cost_matrix
         # Bắt buộc bật output_hidden_states=True để lấy được các layer ở giữa
         self.backbone = AutoModel.from_pretrained(model_name, output_hidden_states=True)
+        # FIX (mmBERT): transformers>=4.48 tự bật reference_compile khi có triton →
+        # ModernBERT ép torch.compile(MLP) → Inductor đòi C++ compiler mà image không có
+        # → InductorError: InvalidCxxCompiler. Tắt compile: chỉ là tối ưu tốc độ, không đổi kết quả.
+        if getattr(self.backbone.config, "reference_compile", None):
+            self.backbone.config.reference_compile = False
         self.hidden_size = self.backbone.config.hidden_size  # 768 (base) / 1024 (large)
         
         # ── Configurable target layers (default: auto-detected from model depth) ──
