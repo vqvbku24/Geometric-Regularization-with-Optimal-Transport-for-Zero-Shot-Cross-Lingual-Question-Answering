@@ -79,7 +79,7 @@ def run_stage1(config):
         compute_cost_matrix=False,
         target_layers=config.get("target_layers"),
     ).to(device)
-    model = DDP(model, device_ids=[local_rank])
+    model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
     
     # Loss — OT/span/cons đều tắt (λ=0), chỉ L_qa + L_has_ans hoạt động.
     # L_qa train trên toàn bộ batch (unanswerable -> start=0, end=0).

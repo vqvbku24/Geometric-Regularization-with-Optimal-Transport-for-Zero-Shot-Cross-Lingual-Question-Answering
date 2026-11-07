@@ -35,6 +35,11 @@ def process_qa_sample(
     # ------------------------------------------------------------------
     # 2.1 — Tokenize question + context
     # ------------------------------------------------------------------
+    # FIX (mmBERT): collapse whitespace trong question — BPE tokenizer bung
+    # whitespace spam thành hàng nghìn tokens → vượt max_length làm Rust
+    # tokenizer raise "Sequence to truncate too short" (vd SQuAD idx 107709).
+    # Chỉ normalize question; KHÔNG đụng context vì answer_start là char offset của context gốc.
+    question = " ".join(question.split())
     inputs = tokenizer(
         question,
         context,
