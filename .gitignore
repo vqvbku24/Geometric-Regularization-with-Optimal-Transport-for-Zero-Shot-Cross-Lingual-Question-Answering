@@ -13,6 +13,9 @@ venv/
 checkpoints/
 runs/
 tensorboard_logs/
+logs/
+results_*/
+checkpoint_stage2*/
 dataset/IndicSQuAD/*
 checkpoints_trained_margin/*
 review_ACL.txt
@@ -20,7 +23,10 @@ rebuttal.md
 audit.txt
 baselines/*
 *.zip
+errors-*.json
+ACL_latex/ACL-copyright-form-filled.pdf
 
-# IDEs
+# OS / IDEs
+.DS_Store
 .vscode/
 .idea/
